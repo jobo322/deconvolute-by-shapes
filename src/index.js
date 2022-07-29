@@ -21,18 +21,21 @@ const internalSignalModel = {
 
 }
 
-function getSumOfShapes(internalPeaks) {
+function getSumOfShapes(internalSignals) {
   return function sumOfShapes(parameters) {
-    return (x) => {
+    return (currentX) => {
       let totalY = 0;
-      for (const peak of internalPeaks) {
-        const peakX = parameters[peak.fromIndex];
-        const y = parameters[peak.fromIndex + 1];
-        for (let i = 2; i <= peak.toIndex; i++) {
+      for (const signal of internalSignals) {
+        const delta = parameters[signal.fromIndex];
+        const intensity = parameters[signal.fromIndex + 1];
+        for (let i = 2; i <= signal.toIndex; i++) {
           //@ts-expect-error Not simply to solve the issue
-          peak.shapeFct[peak.parameters[i]] = parameters[peak.fromIndex + i];
+          signal.shapeFct[signal.parameters[i]] = parameters[signal.fromIndex + i];
         }
-        totalY += y * peak.shapeFct.fct(x - peakX);
+        for (let peak of signal.pattern) {
+          const { x, y } = peak;
+          totalY += y * intensity * signal.shapeFct.fct(currentX - x - delta);
+        }
       }
       return totalY;
     };
@@ -47,6 +50,7 @@ export function getInternalPeaks(
   let index = 0;
   let internalPeaks = [];
   for (const peak of peaks) {
+    const { pattern = { x: 0, y: 1 } } = peak;
     const shape = peak.shape
       ? peak.shape
       : options.shape
@@ -126,6 +130,7 @@ export function getInternalPeaks(
 
     internalPeaks.push({
       shape,
+      pattern,
       shapeFct,
       parameters,
       propertiesValues,
