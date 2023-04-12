@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "filelist-utils": "^0.5.0",
+    "ml-levenberg-marquardt": "^4.1.0",
     "ml-peak-shape-generator": "^4.1.1",
     "nmr-processing": "^8.3.1",
     "spectrum-generator": "^8.0.2"

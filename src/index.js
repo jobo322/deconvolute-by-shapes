@@ -1,25 +1,83 @@
 'use strict';
 
-// const { signalToPeaks } = require('nmr-processing');
 const { getShape1D } = require('ml-peak-shape-generator');
+const { xMinMaxValues } = require('ml-spectra-processing');
 
 const { DefaultParameters } = require('./DefaultParameters');
+
+const { levenbergMarquardt } = require('ml-levenberg-marquardt');
+
 const { assert } = require('./assert');
-//I will optimise signals (clusters of peaks) if the J
 
 const properties = ['init', 'min', 'max', 'gradientDifference'];
 
-const signalModel = {
-  x: 0,
-  y: 1,
-  shape: { kind: 'pseudoVoigt' },
-  parameters: { x: { init: 0, max: 1, min: -1, gradientDifference: 0.1 } },
-  pattern: [{ x: -1, y: 1 }, { x: 1, y: 1 }] //A doublet
+const defaultOptimizationOptions = {
+  damping: 1.5,
+  maxIterations: 100,
+  errorTolerance: 1e-8,
 }
 
-const internalSignalModel = {
+module.exports = { optimizeROI };
 
+function optimizeROI(data, signals, options = {}) {
+  const { optimization = {} } = options;
+  const internalSignals = getInternalSignals(signals);
+
+  const nbParams = internalSignals[internalSignals.length - 1].toIndex + 1;
+  const minValues = new Float64Array(nbParams);
+  const maxValues = new Float64Array(nbParams);
+  const initialValues = new Float64Array(nbParams);
+  const gradientDifferences = new Float64Array(nbParams);
+  let index = 0;
+  for (const peak of internalSignals) {
+    for (let i = 0; i < peak.parameters.length; i++) {
+      minValues[index] = peak.propertiesValues.min[i];
+      maxValues[index] = peak.propertiesValues.max[i];
+      initialValues[index] = peak.propertiesValues.init[i];
+      gradientDifferences[index] = peak.propertiesValues.gradientDifference[i];
+      index++;
+    }
+  }
+
+  let temp = xMinMaxValues(data.y);
+  const minMaxY = { ...temp, range: temp.max - temp.min };
+  let normalizedY = new Float64Array(data.y.length);
+  for (let i = 0; i < data.y.length; i++) {
+    normalizedY[i] = (data.y[i] - minMaxY.min) / minMaxY.range;
+  }
+
+  const sumOfShapes = getSumOfShapes(internalSignals);
+
+  let fitted = levenbergMarquardt({ x: data.x, y: normalizedY }, sumOfShapes, {
+    minValues,
+    maxValues,
+    initialValues,
+    gradientDifference: gradientDifferences,
+    ...defaultOptimizationOptions,
+    ...optimization
+  });
+
+  const fittedValues = fitted.parameterValues;
+  let newSignals = [];
+  for (let peak of internalSignals) {
+    const newSignal = {
+      x: 0,
+      y: 0,
+      shape: peak.shape,
+    };
+    newSignal.x = fittedValues[peak.fromIndex];
+    newSignal.y = fittedValues[peak.fromIndex + 1] * minMaxY.range + minMaxY.min;
+    for (let i = 2; i < peak.parameters.length; i++) {
+      //@ts-expect-error should be fixed once
+      newSignal.shape[peak.parameters[i]] = fittedValues[peak.fromIndex + i];
+    }
+
+    newSignals.push(newSignal);
+  }
+
+  return newSignals;
 }
+
 
 function getSumOfShapes(internalSignals) {
   return function sumOfShapes(parameters) {
@@ -42,7 +100,7 @@ function getSumOfShapes(internalSignals) {
   };
 }
 
-export function getInternalPeaks(
+function getInternalSignals(
   peaks,
   minMaxY,
   options,
